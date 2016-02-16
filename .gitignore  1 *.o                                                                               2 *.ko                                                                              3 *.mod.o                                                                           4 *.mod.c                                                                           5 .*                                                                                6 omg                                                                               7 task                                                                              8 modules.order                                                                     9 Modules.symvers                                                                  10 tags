@@ -1,0 +1,10 @@
+*.o                                                                            
+*.ko                                                                           
+*.mod.o                                                                        
+*.mod.c                                                                        
+.*                                                                             
+omg                                                                            
+task                                                                           
+modules.order                                                                  
+Modules.symvers                                                                
+tags   
