@@ -1,1 +1,0 @@
-cmd_/home/izoomka/wrk/2grade/unix/practice/sigintercept.ko := ld -r -m elf_x86_64 -T /usr/src/linux-headers-4.3.0-1-common/scripts/module-common.lds --build-id  -o /home/izoomka/wrk/2grade/unix/practice/sigintercept.ko /home/izoomka/wrk/2grade/unix/practice/sigintercept.o /home/izoomka/wrk/2grade/unix/practice/sigintercept.mod.o
