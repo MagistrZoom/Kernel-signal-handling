@@ -26,28 +26,22 @@ static struct signal_intercept interceptors[_NSIG] = {0};
 static void signal_deliver_probe(
 		void *data, int sig, struct siginfo *info, struct k_sigaction *ka)
 {
-	printk(KERN_INFO "SIG delivered:%d with handler %p and action %p", sig, ka->sa.sa_handler, interceptors[sig].sig_handler); //log
+	printk(KERN_INFO "SIG delivered:%d with ka %p and action %p", sig, ka, interceptors[sig].sig_handler); //log
 	
-	if(interceptors[sig].sig_handler == SIG_PROC){
-		return;
+	switch((unsigned long)interceptors[sig].sig_handler){
+		case (unsigned long)SIG_PROC:
+			return;
+		case (unsigned long)SIG_DFL:
+			ka->sa.sa_handler = SIG_DFL;
+			break;
+		case (unsigned long)SIG_USR:
+			//do some things 
+		case (unsigned long)SIG_IGN:
+			printk(KERN_DEBUG "+Usr defined handler or ignored sig #%d ", sig);
+			ka->sa.sa_handler = SIG_IGN;
+			break;
 	}
-	//looking for changed signal handers	
-	if(interceptors[sig].sig_handler == SIG_DFL){
-		ka->sa.sa_handler = SIG_DFL;
-		return;
-	}
-	if(interceptors[sig].sig_handler == SIG_IGN){
-		printk("Force ignoring %d signal", sig);
-		ka->sa.sa_handler = SIG_IGN;
-		return;
-	}
-	if(interceptors[sig].sig_handler == SIG_USR){
-		//do some things from interceptors[sig]->cmd
-		//
-		//end dat
-
-		ka->sa.sa_handler = SIG_IGN;
-	}
+	return;
 }
 
 static void 
