@@ -295,13 +295,24 @@ size_t prepare_interceptors(char *conf, struct signal_intercept *arr)
 			}
 		}
 
-		printk(KERN_INFO "Count %lu", count);
+		data = strstr(interceptor, ":") + 1;
 
+		printk(KERN_INFO "Count %lu", count);
+		if(i == 33){ //rt signal
+			char tmp = *(data - 2);
+			int res = 0;
+			*(data - 2) = 0;
+			if(kstrtoint(data-2, 10, &res)){
+				if(res >= 0 && res < 32){
+					i += res;
+				}
+			}
+			*(data - 2) = tmp;	
+		}
 		if(count == 0){
 			break;
 		}
 
-		data = strstr(interceptor, ":") + 1;
 		printk(KERN_INFO "Wh: %s", data);
 
 		if(!strncmp(SIGIGN, data, 7)){
@@ -417,7 +428,6 @@ static void __exit unload_module(void)
 			kfree(interceptors[i].cmd);
 		}
 	}
-
 
 	printk(KERN_INFO "+Module unload\n");
 }
