@@ -7,7 +7,6 @@
 #include <linux/sched.h>
 #include <linux/string.h>
 #include <linux/slab.h>
-#include <linux/kmod.h>
 #include <trace/events/signal.h>
 
 //set to execute shell command
@@ -65,8 +64,8 @@ struct signal_intercept {
 static struct signal_intercept interceptors[_NSIG] = {0};
 
 /*
- * Direct copy from kernel/signal.c
- * (next_signal is an unexported symbol :<)
+ * Copied from kernel/signal.c
+ * (next_signal is unexported symbol :<)
  *
  */
 
@@ -93,7 +92,7 @@ int select_next_signal(struct sigpending *pending, sigset_t *mask)
 		if (x & SYNCHRONOUS_MASK)
 			x &= SYNCHRONOUS_MASK;
 		sig = ffz(~x) + 1;
-		printk(KERN_INFO "+inside next_signal |if(x).. signr (%d)",sig);
+		printk(KERN_ALERT "+inside next_signal |if(x).. signr (%d)",sig);
 		return sig;
 	}
 
@@ -104,7 +103,7 @@ int select_next_signal(struct sigpending *pending, sigset_t *mask)
 			if (!x)
 				continue;
 			sig = ffz(~x) + i*_NSIG_BPW + 1;
-			printk(KERN_INFO "+inside next_signal |switch default.. signr (%d)",sig);
+			printk(KERN_ALERT "+inside next_signal |switch default.. signr (%d)",sig);
 			break;
 		}
 		break;
@@ -114,7 +113,7 @@ int select_next_signal(struct sigpending *pending, sigset_t *mask)
 		if (!x)
 			break;
 		sig = ffz(~x) + _NSIG_BPW + 1;
-		printk(KERN_INFO "inside next_signal |switch case 2.. signr (%d)",sig);
+		printk(KERN_ALERT "inside next_signal |switch case 2.. signr (%d)",sig);
 		break;
 
 	case 1:
@@ -126,31 +125,8 @@ int select_next_signal(struct sigpending *pending, sigset_t *mask)
 }
 
 /*
- * @function shell_command_exec
- * @description starts command cmd as Bourne Shell command
- * /bin/bash -c cmd
- * hope on this machine /bin/bash exists..lyl
- * @param (char*) cmd
- * @return (int) succcess(1) or not(0)
- */
-int shell_command_exec(char *cmd){
-
-	int status = 0;
-
-	char *argv[] = {
-		"/bin/bash/",
-		"-c",
-		cmd,
-		NULL
-	};
-
-
-	return status;
-}
-
-/*
- * @function signal_deliver_probe
- * @description probe invoked by signal_deliver tracepoint
+ * @func signal_deliver_probe
+ * @desc probe invoked by signal_deliver tracepoint
  * @param (void*) data - custom info set by tracepoint_probe_register
  * @param (int) sig - received signal
  * @param (struct siginfo *)info struct, part of ksig variable from do_signal
@@ -171,7 +147,6 @@ static void signal_deliver_probe(
 
 	if(sig == SIGKILL) { 
 		signr = select_next_signal(&signal->shared_pending, &current->blocked);
-		//printk(KERN_INFO "+ after select next sig fatal %d action %p", sig_fatal(current, signr), interceptors[signr].sig_handler);
 		if(sig_fatal(current,signr) 
 				&& interceptors[signr].sig_handler != SIG_PROC){ 
 			signr = dequeue_signal(current, &current->blocked, info);
@@ -185,34 +160,51 @@ static void signal_deliver_probe(
 			sig = signr;
 			signal->flags &= ~SIGNAL_GROUP_EXIT;
 
-			printk(KERN_INFO "+Signal following by SIKGILL is (%d)", signr);
+			printk(KERN_ALERT "+Signal following by SIKGILL is (%d)", signr);
 		}
 	}
 
-	printk(KERN_INFO "+SIG delivered:%d with ka handler %p and action %p", 
+	printk(KERN_ALERT "+SIG delivered:%d with ka handler %p and action %p", 
 			sig, ka->sa.sa_handler, interceptors[sig].sig_handler); //log
 	
 	switch((unsigned long)interceptors[sig].sig_handler) {
 		case (unsigned long)SIG_PROC:
 			break;
 		case (unsigned long)SIG_DFL:
-			printk(KERN_INFO "+Force default action for (%d)", sig);
+			printk(KERN_ALERT "+Force default action for (%d)", sig);
 			ka->sa.sa_handler = SIG_DFL;
 			break;
 		case (unsigned long)SIG_USR:
-			printk(KERN_INFO "+User defined command %s", interceptors[sig].cmd);
-			int status = shell_command_exec(interceptors[sig].cmd);
-			if(status){
-				printk(KERN_NOTICE "+Success");
-			} else {
-				printk(KERN_ALERT "+Error");
-			}
+			//do some things 
+			printk(KERN_ALERT "+Usr defined handler sig (%d) ", sig);
 		case (unsigned long)SIG_IGN:
-			printk(KERN_INFO "+Usr defined handler or ignored sig (%d) ", sig);
+			printk(KERN_ALERT "+Usr defined handler or ignored sig (%d) ", sig);
 			ka->sa.sa_handler = SIG_IGN;
 			break;
 	}
+	/* 
+	 * if there was few signals which could kill process 
+	 * need to restore SIGKILL and set up valid return code
+	 *
+	 */
+	 
+	/* 
+	int sign;
+	struct sigpending *shared = &signal->shared_pending;
+	for(sign = 0; sign < _NSIG; sign++){
+		if(sigismember(&shared->signal, sign) && sig_fatal(current, sign)){
+			signal->flags = SIGNAL_GROUP_EXIT;                                 
+			signal->group_exit_code = sign;                                     
+			signal->group_stop_count = 0;                                      
 
+	 	    sigaddset(&shared->signal, SIGKILL);                        
+			printk(KERN_DEBUG "+Besides (%d) there was (%d) also.\
+					Set up new exit code and SIGNAL_GROUP_EXIT", sig, sign);
+			break;
+		}
+	}
+	
+		*/
 	return;
 }
 
@@ -240,32 +232,19 @@ static int connect_probes(void)
 	return 0;
 }
 
-/*
- * @function strastr
- * @description same as strstr but searches for all occasions
- * @param (const char*) haystack
- * @param (const char*) needle
- * @return (size_t) amount of occasions of needle in haystack
- */
-size_t strastr(const char *haystack, const char *needle)
-{
+//strastr
+//counts all needle occurences in haystack
+
+size_t strastr(const char *haystack, const char *needle){
 	size_t r = 0;
-	char *high_bracket = haystack;
-	while ((high_bracket = strstr(high_bracket, needle)) != NULL){
+	char *ptr = haystack;
+	while ((ptr = strstr(ptr, haystack)) != NULL){
 		r++;
-		high_bracket += strlen(needle);
 	}
 	return r;
 }
 
-/*
- * @function prepare_interceptors
- * @description looking for config variable and parse passed arguments as
- * bash-command or some action like SIG_DFL || SIG_IGN
- * @param (char*) conf
- * @param (struct signal_intercept*) arr
- * @return (size_t) amount of accepted singal handlers
- */
+//TODO: add signature description
 size_t prepare_interceptors(char *conf, struct signal_intercept *arr)
 {
 	char *separator = ";";
@@ -288,89 +267,77 @@ size_t prepare_interceptors(char *conf, struct signal_intercept *arr)
 			break;
 		}
 		size_t i = 0;
-		printk(KERN_INFO "Int:%s", interceptor);
+		printk(KERN_ALERT "Int:%s", interceptor);
 		while(++i < MAGIC){
 			if(!strncmp(sigstr[i], interceptor, strlen(sigstr[i]))){
-				printk(KERN_INFO "Sig %s matched", sigstr[i]);
+				printk(KERN_ALERT "Sig %s matched", sigstr[i]);
 				count++;
 				break;
 			}
 		}
-
-		printk(KERN_INFO "Count %lu", count);
 
 		if(count == 0){
 			break;
 		}
 
 		data = strstr(interceptor, ":") + 1;
-		printk(KERN_INFO "Wh: %s", data);
-
+		printk(KERN_ALERT "Wh: %s", data);
 		if(!strncmp(SIGIGN, data, 7)){
-			printk(KERN_INFO "%lu signal now will ignore", i);
+			printk(KERN_ALERT "%lu signal now will ignore", i);
 			arr[i].sig_handler = SIG_IGN;
 			continue;
 		}
 				
 		if(!strncmp(SIGDFL, data, 7)){
-			printk(KERN_INFO "%lu signal now will handle default", i);
+			printk(KERN_ALERT "%lu signal now will handle default", i);
 			arr[i].sig_handler = SIG_DFL;
 			continue;
 		}
-
+/*
 		//shell-command then
 		//replace <spc> and <sc> by " " and ";" and save it pointer to
 		//cmd
-		size_t command_length = strlen(data);
-		command_length -= strastr(data, semicolon)*(strlen(semicolon)-1) + strastr(data, space)*(strlen(space)-1);
-			
-		char *cmd = kmalloc((command_length + 1)* sizeof(char), GFP_KERNEL);
-		printk(KERN_INFO "+ %lu copy_length", command_length);
-		
-		if(cmd == NULL){
-			printk(KERN_ERR "+ Cannot allocate memory for user-defined command. Skip.");
-			count--;
-			continue;
+		size_t command_length = strlen(data) + 1;
+		command_length -= strastr(data, "<sc>")+strastr(data, "<spc>");
+
+		char *ptr = kmalloc(command_length * sizeof(char), GFP_KERNEL);
+
+		if(ptr != NULL){
+			arr[i].cmd = ptr;
+			arr[i].cmd[command_length - 1] = 0;
+		} else {
+			printk(KERN_ERR "+Kernel memory allocation error. Cannot \
+					handle %lu signal", i);
 		}
 
 		size_t dest_offset = 0, src_offset = 0;
 		while(dest_offset < command_length){
-			char *sc = strstr(data + src_offset, semicolon);
-			char *spc = strstr(data + src_offset, space);
-			
-			char *high_bracket = data + src_offset + strlen(data + src_offset);
-			if((sc < spc && sc != NULL) || (spc == NULL && sc != NULL)){
-				high_bracket = sc;	
-			} else if((spc < sc && spc != NULL) || (sc == NULL && spc != NULL)){
-				high_bracket = spc;	
-			}
+			//find nearest symbol replacement <sc> or <spc>
+			char *sc = strstr(data, sc);	
+			char *spc = strstr(data, spc);
+
+			char *ptr = data + strlen(data);
 	
-			size_t copy_length = high_bracket - data - src_offset;
-	
-			printk(KERN_INFO "+ %lu copy_length", copy_length);
-			strncpy(cmd + dest_offset, data + src_offset, copy_length);
-	
-			src_offset += copy_length;
-			dest_offset += copy_length;
-			if((sc < spc && sc != NULL) || (spc == NULL && sc != NULL)){
-				src_offset += strlen(semicolon);
-				dest_offset += 1;
-				cmd[dest_offset - 1] = ';';
-			} else if((spc < sc && spc != NULL) || (sc == NULL && spc != NULL)){
-				src_offset += strlen(space);
-				dest_offset += 1;
-				cmd[dest_offset - 1] = ' ';
+			if(sc > spc){
+				ptr = spc;
+			} else {
+				ptr = sc;
 			}
 
-			printk(KERN_INFO "+ Parsed command: %s", cmd);
+			strncpy(arr[i].cmd + dest_offset, data + src_offset, ptr - data);
+
+			if(sc > spc){
+				dest_offset += ptr - data;
+				src_offset += ptr - data + strlen(space);
+			} else if(sc < spc){
+				dest_offset += ptr - data;
+				src_offset += ptr - data + strlen(semicolon);
+			} else {
+				dest_offset = command_length;
+			}
 		}
-		cmd[dest_offset] = 0;
-
-		arr[i].cmd = cmd;
-		arr[i].sig_handler = SIG_USR;
-
 		printk(KERN_INFO "+ Parsed command: %s", arr[i].cmd);
-		
+		*/
 	}
 	
 
