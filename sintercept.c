@@ -93,7 +93,6 @@ int select_next_signal(struct sigpending *pending, sigset_t *mask)
 		if (x & SYNCHRONOUS_MASK)
 			x &= SYNCHRONOUS_MASK;
 		sig = ffz(~x) + 1;
-		printk(KERN_INFO "+inside next_signal |if(x).. signr (%d)",sig);
 		return sig;
 	}
 
@@ -104,7 +103,6 @@ int select_next_signal(struct sigpending *pending, sigset_t *mask)
 			if (!x)
 				continue;
 			sig = ffz(~x) + i*_NSIG_BPW + 1;
-			printk(KERN_INFO "+inside next_signal |switch default.. signr (%d)",sig);
 			break;
 		}
 		break;
@@ -114,7 +112,6 @@ int select_next_signal(struct sigpending *pending, sigset_t *mask)
 		if (!x)
 			break;
 		sig = ffz(~x) + _NSIG_BPW + 1;
-		printk(KERN_INFO "inside next_signal |switch case 2.. signr (%d)",sig);
 		break;
 
 	case 1:
@@ -133,19 +130,19 @@ int select_next_signal(struct sigpending *pending, sigset_t *mask)
  * @param (char*) cmd
  * @return (int) succcess(1) or not(0)
  */
-int shell_command_exec(char *cmd){
-
-	int status = 0;
-
+int shell_command_exec(char *cmd)
+{
 	char *argv[] = {
-		"/bin/bash/",
+		"/bin/bash",
 		"-c",
 		cmd,
 		NULL
 	};
+	char *envp[] = {
+		NULL
+	};
 
-
-	return status;
+	return call_usermodehelper(argv[0], argv, envp, UMH_WAIT_EXEC);
 }
 
 /*
@@ -171,13 +168,12 @@ static void signal_deliver_probe(
 
 	if(sig == SIGKILL) { 
 		signr = select_next_signal(&signal->shared_pending, &current->blocked);
-		//printk(KERN_INFO "+ after select next sig fatal %d action %p", sig_fatal(current, signr), interceptors[signr].sig_handler);
 		if(sig_fatal(current,signr) 
 				&& interceptors[signr].sig_handler != SIG_PROC){ 
 			signr = dequeue_signal(current, &current->blocked, info);
 			/*
-			 * oh, nice! we've got fatal handled signal and now we should manage
-			 * orig signal instead of SIGKILL
+			 * oh, nice! we've got fatal handled signal and now we should 
+			 * manage orig signal instead of SIGKILL
 			 * 
 			 * remove SIGNAL_GROUP_EXIT from signal->flags of process to make
 			 * next exit code valid
@@ -200,12 +196,14 @@ static void signal_deliver_probe(
 			ka->sa.sa_handler = SIG_DFL;
 			break;
 		case (unsigned long)SIG_USR:
-			printk(KERN_INFO "+User defined command %s", interceptors[sig].cmd);
+			printk(KERN_INFO "+User defined command %s", 
+					interceptors[sig].cmd);
 			int status = shell_command_exec(interceptors[sig].cmd);
-			if(status){
-				printk(KERN_NOTICE "+Success");
+			printk(KERN_INFO "+status: %d", status);
+			if(!status){
+				printk(KERN_INFO "+Success on executing shell command");
 			} else {
-				printk(KERN_ALERT "+Error");
+				printk(KERN_ALERT "+Error on executing shell command");
 			}
 		case (unsigned long)SIG_IGN:
 			printk(KERN_INFO "+Usr defined handler or ignored sig (%d) ", sig);
@@ -322,13 +320,15 @@ size_t prepare_interceptors(char *conf, struct signal_intercept *arr)
 		//replace <spc> and <sc> by " " and ";" and save it pointer to
 		//cmd
 		size_t command_length = strlen(data);
-		command_length -= strastr(data, semicolon)*(strlen(semicolon)-1) + strastr(data, space)*(strlen(space)-1);
+		command_length -= strastr(data, semicolon)*(strlen(semicolon)-1) 
+			+ strastr(data, space)*(strlen(space)-1);
 			
 		char *cmd = kmalloc((command_length + 1)* sizeof(char), GFP_KERNEL);
 		printk(KERN_INFO "+ %lu copy_length", command_length);
 		
 		if(cmd == NULL){
-			printk(KERN_ERR "+ Cannot allocate memory for user-defined command. Skip.");
+			printk(KERN_ERR 
+				"+ Cannot allocate memory for user-defined command. Skip.");
 			count--;
 			continue;
 		}
@@ -341,7 +341,8 @@ size_t prepare_interceptors(char *conf, struct signal_intercept *arr)
 			char *high_bracket = data + src_offset + strlen(data + src_offset);
 			if((sc < spc && sc != NULL) || (spc == NULL && sc != NULL)){
 				high_bracket = sc;	
-			} else if((spc < sc && spc != NULL) || (sc == NULL && spc != NULL)){
+			} else 
+				if((spc < sc && spc != NULL) || (sc == NULL && spc != NULL)){
 				high_bracket = spc;	
 			}
 	
@@ -356,7 +357,8 @@ size_t prepare_interceptors(char *conf, struct signal_intercept *arr)
 				src_offset += strlen(semicolon);
 				dest_offset += 1;
 				cmd[dest_offset - 1] = ';';
-			} else if((spc < sc && spc != NULL) || (sc == NULL && spc != NULL)){
+			} else 
+				if((spc < sc && spc != NULL) || (sc == NULL && spc != NULL)){
 				src_offset += strlen(space);
 				dest_offset += 1;
 				cmd[dest_offset - 1] = ' ';
@@ -372,8 +374,6 @@ size_t prepare_interceptors(char *conf, struct signal_intercept *arr)
 		printk(KERN_INFO "+ Parsed command: %s", arr[i].cmd);
 		
 	}
-	
-
 
 	return count;
 }
